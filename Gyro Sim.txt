@@ -1,0 +1,98 @@
+#include <SoftwareSerial.h>
+SoftwareSerial sim(10, 11);
+
+String numara = "+90**********";                                       // gidecek numara
+
+
+#include<Wire.h>;                                                                  //I2C Kütüphanesi
+#include<Math.h>;                                                                 //Trigonometrik iþlemler için kütüphane
+const int MPU_addr = 0x68;                                                  //MPU6050 I2C Slave adresi
+unsigned long previousMillis = 0;                                         //Önceki millis deðeri için deðiþken
+const long interval = 30;                                                        //Ölçümler arasýndaki süre (ms)
+
+int ang_x;  //X ekseni ile yapýlan açý için deðiþken
+int ang_y;  //Y ekseni ile yapýlan açý için deðiþken
+
+
+int X_offset = 0;   //X ekseni için offset deðeri
+int Y_offset = 0;   //Y ekseni için offset deðeri
+int Z_offset = 1700;//Z ekseni için offset deðeri
+
+int sayac = 0;
+int esikdeger = 40;
+
+void setup() {
+  Serial.begin(9600);                                                              //Seri haberlþeme baþlatýlýr
+  sim.begin(9600);
+  delay(5000);
+
+  Wire.begin();                                                                       //I2C Baþlatýlýr
+  Wire.beginTransmission(MPU_addr);                            //0x6B register'ýndaki setup deðerleri 0 yapýlýr
+  Wire.write(0x6B);
+  Wire.write(0x00);
+  Wire.endTransmission(true);
+  //Serial.begin(9600);
+}
+
+void loop() {
+  unsigned long currentMillis = millis();                                //Millis deðeri alýnýr
+
+  if (currentMillis - previousMillis >= interval) {                         //Ýnterval süresi geçtiðinde içeri girilir
+    previousMillis = currentMillis;
+
+    Wire.beginTransmission(MPU_addr);                                //MPU6050 ile I2C haberleþme baþlatýlýr
+    Wire.write(0x3B);                                                         //Ývme bilgisinin olduðu 0x3B-0x40 için request gönderilir
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_addr, 6, true);
+
+    int16_t XAxisFull =  (Wire.read() << 8 | Wire.read()) + X_offset; //8-bitlik okunan iki deðerden büyük aðýrlýklý olaný 8 bit sola kaydýrýlýp küçük olanla veyalanýr. Offset eklenir.
+    int16_t YAxisFull =  (Wire.read() << 8 | Wire.read()) + Y_offset; //8-bitlik okunan iki deðerden büyük aðýrlýklý olaný 8 bit sola kaydýrýlýp küçük olanla veyalanýr. Offset eklenir.
+    int16_t ZAxisFull =  (Wire.read() << 8 | Wire.read()) + Z_offset; //8-bitlik okunan iki deðerden büyük aðýrlýklý olaný 8 bit sola kaydýrýlýp küçük olanla veyalanýr. Offset eklenir.
+    float XAxisFinal = (float) XAxisFull / 16384.0;                  //Datasheet'te yazan deðerlere göre "g" cinsinden ivme bulunur. (X ekseni için)
+    float YAxisFinal = (float) YAxisFull / 16384.0;                  //Datasheet'te yazan deðerlere göre "g" cinsinden ivme bulunur. (Y ekseni için)
+    float ZAxisFinal = (float) ZAxisFull / 16384.0;                  //Datasheet'te yazan deðerlere göre "g" cinsinden ivme bulunur. (Z ekseni için)
+
+    if (XAxisFinal > 0.99) XAxisFinal = 1; //0.99 olan deðerler 1'e tamamlanýr.
+    if (YAxisFinal > 0.99) YAxisFinal = 1;
+    if (ZAxisFinal > 0.99) ZAxisFinal = 1;
+
+    if (XAxisFinal < -0.99) XAxisFinal = -1; //-0.99 olan deðerler 1'e tamamlanýr.
+    if (YAxisFinal < -0.99) YAxisFinal = -1;
+    if (ZAxisFinal < -0.99) ZAxisFinal = -1;
+
+    ang_x = atan(YAxisFull / (sqrt(pow(XAxisFull, 2) + pow(ZAxisFull, 2)))) * 57296 / 1000; //Euler Açý formülüne göre açý hesabý. (X-Ekseni)
+    ang_y = atan(YAxisFull / (sqrt(pow(XAxisFull, 2) + pow(ZAxisFull, 2)))) * 57296 / 1000; //Euler Açý formülüne göre açý hesabý. (Y-Ekseni)
+    /*
+      Serial.print("X angle = "); //X ve Y eksenleri için açý deðerleri seri porttan basýlýr
+      Serial.println(ang_x);
+      Serial.print("");
+    */
+    delay(10);
+
+    if (ang_x > esikdeger or ang_x < -esikdeger) {
+      sayac ++;
+      delay(50);
+    }
+  }
+  tespit();
+}
+void tespit() {
+  if (sayac == 3) {
+    Serial.println("HASAR TESPÝT EDÝLDÝ!!!");
+    mesajGonder();
+    sayac = 0;
+    delay(5000);
+  }
+}
+void mesajGonder()
+{
+  sim.println("AT+CMGF=1");
+  delay(1000);
+  sim.println("AT+CMGS=\"" + numara + "\"\r");
+  delay(1000);
+  String SMS = "Düþme Algýlandý!";
+  sim.println(SMS);
+  delay(100);
+  sim.println((char)26);
+  delay(1000);
+}
